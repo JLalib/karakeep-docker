@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: karakeep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: karakeep
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U karakeep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY}
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: karakeep/karakeep:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://karakeep:${POSTGRES_PASSWORD}@postgres:5432/karakeep
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+    ports:
+      - "3000:3000"
+    volumes:
+      - karakeep_data:/app/data
+
+  workers:
+    image: karakeep/karakeep:latest
+    command: pnpm workers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://karakeep:${POSTGRES_PASSWORD}@postgres:5432/karakeep
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+    volumes:
+      - karakeep_data:/app/data
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  meilisearch_data:
+  karakeep_data:
+  ollama_data:
